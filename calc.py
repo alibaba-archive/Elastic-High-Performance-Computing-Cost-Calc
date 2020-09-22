@@ -89,7 +89,6 @@ BILL_VALUE_BILLINGITEM_MAP = { #need to extend
     u'云服务器配置': 'Cloudserverconfiguration',
     'Cloud server configuration': 'Cloudserverconfiguration',
 
-# debug
     'systemdisk':'systemdisk',
     'instance_type':'instance_type',
     u'带宽':'Bandwidth',
@@ -132,12 +131,6 @@ OUTPUT_HEADER_MAP = {
     'PreTaxAmount': u'应付金额'
 }
 
-## columnIndex: dict
-#  kv as field: indexOfRowArray
-#  {
-#     'ProductCode': 6,
-#     ...
-#  }
 def buildColumnIndex(header, translateMap):
     index = {}
     for i, field in enumerate(header):
@@ -155,8 +148,7 @@ def buildColumnIndex(header, translateMap):
 def buildHeaderFromColumnIndex(columnIndex):
     headerLen = max(columnIndex.values()) + 1
     header = [None] * headerLen
-    # for key,idx in columnIndex.iteritems():   #python2
-    for key, idx in columnIndex.items():    #python3
+    for key, idx in columnIndex.items():   
         header[idx] = key
     return header
 
@@ -211,9 +203,9 @@ class SubscriptionTypeFilter(FilterClass):
         if not value:
             raise Exception('unknown subscription type: %s' % valueStr)
         rowArray[indexSubType] = value
-        meta['subscriptionType'] = value    #'not use?'
+        meta['subscriptionType'] = value   
         ## TODO: support 预付费
-        return value in SUBSCRIPTION_TYPE_INVOLVED  #'always true'
+        return value in SUBSCRIPTION_TYPE_INVOLVED
 
 class TimeFilter(FilterClass):
     '''Filter rows by startTime & endTime'''
@@ -225,8 +217,8 @@ class TimeFilter(FilterClass):
     def filter(self, rowArray, meta):
         indexStartTime = self.getFieldIndex('UsageStartTime')
         indexEndTime = self.getFieldIndex('UsageEndTime')
-        vStart = parseLocalTimeToTimestmp(rowArray[indexStartTime])
-        vEnd = parseLocalTimeToTimestmp(rowArray[indexEndTime])
+        vStart = parseLocalTimeToTimestamp(rowArray[indexStartTime])
+        vEnd = parseLocalTimeToTimestamp(rowArray[indexEndTime])
         rowArray[indexStartTime] = vStart
         rowArray[indexEndTime] = vEnd
         meta['startTime'] = int(vStart // 3600 * 3600)
@@ -272,7 +264,6 @@ class AmountFormatter(FilterClass):
     def filter(self, rowArray, meta):
         indexGrossAmount = self.getFieldIndex('PreTaxGrossAmount')
         grossAmountStr = rowArray[indexGrossAmount]
-        # grossAmount = None
         try:
             grossAmount = float(grossAmountStr)
         except ValueError:
@@ -315,7 +306,7 @@ class DiscountNameFilter(FilterClass):
 def parseTime(timeStr, timeFormat = TIME_FORMAT):
     return datetime.strptime(timeStr, timeFormat)
 
-def parseLocalTimeToTimestmp(timeStr, timeFormat = TIME_FORMAT):
+def parseLocalTimeToTimestamp(timeStr, timeFormat = TIME_FORMAT):
     _t = parseTime(timeStr, timeFormat)
     return int(time.mktime(_t.timetuple()))
 
@@ -477,12 +468,11 @@ def loadJobDetailAndMergeBillingDetail(jobDetailFileList, billingColumnIndex, bi
             logging.info('Start loading %s ...' % jobDetailFileName)
             detailReader = csv.reader(fd1)
 
+            # header = next(detailReader)[0].strip().split(",")
             header = [field.strip() for field in next(detailReader)]
-            # header = [field.decode('utf-8').strip() for field in detailReader.next()]
             if num_file == 1:
                 global_header = copy.deepcopy(header)
                 columnIndex = buildColumnIndex(header, JOBDETAIL_HEADER_MAP)
-                ## expand header
                 columnIndex['PreTaxGrossAmount'] = len(header)
                 columnIndex['PreTaxAmount'] = len(header) + 1
                 columnIndex['CpuTime'] = len(header) + 2
@@ -515,6 +505,7 @@ def loadJobDetailAndMergeBillingDetail(jobDetailFileList, billingColumnIndex, bi
                     items[taskIdIndex] = taskId.lower()
 
                 items[userIndex] = items[userIndex].lower()
+                # items[queueIndex] = items[queueIndex].lower()
                 items[hostnameIndex] = items[hostnameIndex].lower()
 
                 if lineCount % 1000 == 0:
@@ -548,7 +539,11 @@ def loadJobDetailAndMergeBillingDetail(jobDetailFileList, billingColumnIndex, bi
                             if key[1] > filter_startTime and key[0] < filter_endTime:
                                 fee = getValueByColumnIndex(value[0], 'PreTaxAmount', billingColumnIndex)
                         else:
-                            fee = getValueByColumnIndex(value[0], 'PreTaxAmount', billingColumnIndex)
+                            print(len(value[0]))
+                            if len(value[0]):
+                                fee = getValueByColumnIndex(value[0], 'PreTaxAmount', billingColumnIndex)
+                            else:
+                                fee = 0
                         total += float(fee)
                     if queue not in total_fee:
                         total_fee[queue] = total
@@ -577,7 +572,6 @@ def loadJobDetailAndMergeBillingDetail(jobDetailFileList, billingColumnIndex, bi
                             grossAmount_sum += temp_grossAmount
                             amount_sum += temp_amount
 
-                            # detailrow = copy.deepcopy(row)
                             detailrow = copy.deepcopy(items)
                             billStartTimeIndex = detailcolumnIndex.get('startTime', None)
                             billEndTimeIndex = detailcolumnIndex.get('endTime', None)
@@ -594,6 +588,7 @@ def loadJobDetailAndMergeBillingDetail(jobDetailFileList, billingColumnIndex, bi
                                 if billDiscountName == 'spotIntanc':
                                     detailrow.append('Spot')
                                     tempDict = {}
+
                                     if instanceId in spotDict:
                                         if billItem in spotDict[instanceId]:
                                             spotDict[instanceId][billItem][(billStartTime, billEndTime)] = billListPrice
@@ -627,7 +622,7 @@ def MergeTwoRow(firstrow, lastrow, columnIndex):
     floatTypeKey = ['PreTaxGrossAmount', 'PreTaxAmount', 'CoreHours']
     intTypeKey = ['usedCPU', 'usedMem', 'instanceCores', 'ServiceDuration', 'CpuTime']
 
-    for key, value in columnIndex.items():  #python3
+    for key, value in columnIndex.items():
         if key in floatTypeKey:
             temprow[value] = float(firstrow[value]) + float(lastrow[value])
         elif key in intTypeKey:
@@ -677,7 +672,7 @@ def MergeJobDetailByJobId(columnIndex, rows):
 
     return retRows
 
-def analy_job_queue(Rows, columnIndex, total_fee):
+def analysisJobQueue(Rows, columnIndex, total_fee):
     queue_dict = {}
     new_Rows = []
 
@@ -751,7 +746,7 @@ def writeJobDetail(outputFileName, columnIndex, rows):
             logging.warning('output file already exists, overwrite %s' % outputFileName)
         else:
             raise Exception('output file already exists %s' % outputFileName)
-    with open(outputFileName, 'w', newline="", encoding="utf-8") as fd:  #python3
+    with open(outputFileName, 'w', newline="", encoding="utf-8") as fd:  
         writer = csv.writer(fd)
         logging.info('Start writing output %s' % outputFileName)
 
@@ -873,13 +868,11 @@ def drawPie(DetailDict):
     ItemDF.plot(kind = 'pie', autopct = '%.1f%%', title = '产品花费分布', figsize = (6,6))
     '''
     plt.legend()
-    # plt.show()
     plt.savefig('./ItemPie.svg', format = 'svg', dpi = 500)
     plt.clf()
 
     plt.pie(BillTypevalue, labels=BillTypelabel,autopct='%.1f%%')
     plt.legend()
-    # plt.show()
     plt.savefig('./BillTypePie.svg', format = 'svg', dpi = 500)
     plt.clf()
     plt.close()
@@ -902,7 +895,6 @@ def drawSpot(spotDict, filename):
         plt.xticks(rotation=30, fontsize=7)
         plt.title(titlename)
         plt.savefig(filename, format = 'svg', dpi = 700)
-
 
 def draw(_JobCostDetail, _UserCostDetail, _QueueCostDetail, _DetailCostDict, detail_file):
     plt.figure(figsize=(12, 8))
@@ -979,10 +971,9 @@ def draw(_JobCostDetail, _UserCostDetail, _QueueCostDetail, _DetailCostDict, det
     plt.yticks(fontsize=10)
     plt.xlabel('queue')
     plt.ylabel('详细花费/元')
-
     plt.savefig(detail_file, format = 'svg', dpi = 700)
 
-def AnalyCost(columnIndex, Rows, arg):
+def analysisCost(columnIndex, Rows, arg):
     '''ResModeCostDetail: 消费类型 : ResModeCostDetail[0]: 包年包月; ResModeCostDetail[1]: 按量付费; ResModeCostDetail[2]: 抢占式实例'''
     '''BillItemCostDetail: 计费项: BillItemCostDetail[0]: 云服务器配置; BillItemCostDetail[1]: 系统盘'''
     JobCostDetail = {}
@@ -1022,8 +1013,6 @@ def AnalyCost(columnIndex, Rows, arg):
             QueueCostDetail[queue] = copy.deepcopy(tempDetailCostDict)
 
     draw(JobCostDetail, UserCostDetail, QueueCostDetail, DetailCostDict, arg['detail_FileName'])
-
-
 
 def strTimeRows(Rows, columnIndex):
     startIndex = columnIndex.get('startTime', None)
@@ -1065,7 +1054,7 @@ def main(arg):
 
     return outRows, outColumnIndex, detailRows, detailColumnIndex, spotDict, total_fee
 
-def parse_arg(config_file):
+def parseArg(config_file):
     arg = {}
     config = configparser.ConfigParser()
     config.read(config_file, encoding='UTF-8')
@@ -1162,8 +1151,8 @@ def parse_arg(config_file):
         filter_starttime = None
         filter_endtime = None
     elif filter_starttime != '' and filter_endtime != '':
-        filter_starttime = parseLocalTimeToTimestmp(filter_starttime)
-        filter_endtime = parseLocalTimeToTimestmp(filter_endtime)
+        filter_starttime = parseLocalTimeToTimestamp(filter_starttime)
+        filter_endtime = parseLocalTimeToTimestamp(filter_endtime)
     else:
         logging.error("filter time is error")
         sys.exit(1)
@@ -1178,22 +1167,20 @@ def parse_arg(config_file):
 def summaryByJob(Rows, columnindex, summaryByJobIdFileName, total_fee, job_queue_file):
     JobIdMergeRows = MergeJobDetailByJobId(columnindex, Rows)
     strTimeRows(JobIdMergeRows, columnindex)
-    JobcolumnList = [
-        'jobId',
-        'taskId',
-        'jobName',
-        'user',
-        'queue',
-        'hostname',
-        'usedCPU',
-        'usedMem',
-        'startTime',
-        'endTime',
-        'instanceCores',
-        'CoreHours',
-        'PreTaxGrossAmount',
-        'PreTaxAmount'
-    ]
+    JobcolumnList = ['jobId',
+                    'taskId',
+                    'jobName',
+                    'user',
+                    'queue',
+                    'hostname',
+                    'usedCPU',
+                    'usedMem',
+                    'startTime',
+                    'endTime',
+                    'instanceCores',
+                    'CoreHours',
+                    'PreTaxGrossAmount',
+                    'PreTaxAmount']
     Jobcolumnindex = {}
     for i, field in enumerate(JobcolumnList):
         Jobcolumnindex[field] = i
@@ -1210,7 +1197,7 @@ def summaryByJob(Rows, columnindex, summaryByJobIdFileName, total_fee, job_queue
                 newrow[value] = row[columnindex[key]]
         newRows.append(newrow)
 
-    job_queue_detail = analy_job_queue(JobIdMergeRows, columnindex, total_fee)
+    job_queue_detail = analysisJobQueue(JobIdMergeRows, columnindex, total_fee)
     with open(job_queue_file, 'w', newline="", encoding="utf-8-sig") as fd:  #python3
         writer = csv.writer(fd)
         logging.info('Start writing output %s' % job_queue_file)
@@ -1223,17 +1210,16 @@ def summaryByJob(Rows, columnindex, summaryByJobIdFileName, total_fee, job_queue
 
 def summaryByUser(Rows, columnindex, summaryByUserFileName):
     UserMergeRows = MergeJobDetailByUser(columnindex, Rows)
-    UsercolumnList = [
-        'user',
-        'jobnum',
-        'queuenum',
-        'usedCPU',
-        'usedMem',
-        'instanceCores',
-        'PreTaxGrossAmount',
-        'PreTaxAmount',
-        'CoreHours'
-    ]
+    UsercolumnList = ['user',
+                    'jobnum',
+                    'queuenum',
+                    'usedCPU',
+                    'usedMem',
+                    'instanceCores',
+                    'PreTaxGrossAmount',
+                    'PreTaxAmount',
+                    'CoreHours'
+                    ]
     Usercolumnindex = {}
     for i, field in enumerate(UsercolumnList):
         Usercolumnindex[field] = i
@@ -1266,17 +1252,16 @@ def summaryByUser(Rows, columnindex, summaryByUserFileName):
 
 def summaryByQueue(Rows, columnindex, summaryByQueueFileName):
     QueueMergeRows = MergeJobDetailByQueue(columnindex, Rows)
-    QueuecolumnList = [
-        'queue',
-        'usedCPU',
-        'usedMem',
-        'instanceCores',
-        'PreTaxGrossAmount',
-        'PreTaxAmount',
-        'jobnum',
-        'usernum',
-        'CoreHours'
-    ]
+    QueuecolumnList = ['queue',
+                        'usedCPU',
+                        'usedMem',
+                        'instanceCores',
+                        'PreTaxGrossAmount',
+                        'PreTaxAmount',
+                        'jobnum',
+                        'usernum',
+                        'CoreHours'
+                        ]
     Queuecolumnindex ={}
     for i, field in enumerate(QueuecolumnList):
         Queuecolumnindex[field] = i
@@ -1317,7 +1302,7 @@ def summary(Rows, columnindex, arg, total_fee):
         summaryByQueue(Rows, columnindex, summaryByQueueFileName)
     elif summaryType == '1':
         logging.info('Summary By JobId')
-        summaryByJob(Rows, columnindex, summaryByJobIdFileName, total_fee)
+        summaryByJob(Rows, columnindex, summaryByJobIdFileName, total_fee, arg['job_queue_FileName'])
     elif summaryType == '2':
         logging.info('Summary By User')
         summaryByUser(Rows, columnindex, summaryByUserFileName)
@@ -1327,10 +1312,10 @@ def summary(Rows, columnindex, arg, total_fee):
 
 if __name__ == "__main__":
     config_file = sys.argv[1]
-    arg = parse_arg(config_file)
+    arg = parseArg(config_file)
     values = main(arg)
     summary(values[0], values[1], arg, values[5])
     if arg['analy']:
-        AnalyCost(values[3], values[2], arg)
+        analysisCost(values[3], values[2], arg)
     if arg['spot']:
         drawSpot(values[4], arg['spot_FileName'])
