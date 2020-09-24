@@ -533,6 +533,8 @@ def loadJobDetailAndMergeBillingDetail(jobDetailFileList, billingColumnIndex, bi
                 if instanceId not in instance_set:
                     instance_set.add(instanceId)
                     buckets = billingDetailDict.get(instanceId, None)
+                    if not buckets:
+                        continue
                     total = 0
                     for key, value in buckets[0].items():
                         if filter_startTime and filter_endTime:
